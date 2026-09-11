@@ -19,7 +19,8 @@ Streaming Data"* (Appendix A mirrors `music_culture_analysis.R`).
 | 3. Dimensionality reduction | PCA on 9 audio features (standardized); 3 components retained (eigenvalue > 1 / scree elbow) | Table 5-2, scree & loading plots |
 | 4. Clustering | Hierarchical clustering on principal components (HCPC, 3 clusters) + ANOVA & Kruskal-Wallis on Hofstede dimensions | Table 5-3, cluster boxplots |
 | 5. Nested regression | PC1–PC3 scores regressed on Hofstede dimensions, with and without log GDP per capita, on nested samples (60 vs 55 countries) | Tables 5-4 to 5-6 |
-| 6. Diagnostics | VIF (multicollinearity), White / studentized Breusch-Pagan test (heteroscedasticity), HC3 robust standard errors, sample-size audit | Tables 5-7, 5-8 |
+| 6. RQ3 incremental analysis | Nested F-tests: 55-country four-dimension baseline (PDI, IDV, MAS, UAI) vs six-dimension model (+ LTO, IVR), without GDP control | Table 6-1 |
+| 7. Diagnostics | VIF (multicollinearity), White / studentized Breusch-Pagan test (heteroscedasticity), HC3 robust standard errors, sample-size audit | Tables 5-7, 5-8 |
 
 ## Key Findings (direction of association; see dissertation for full estimates)
 
@@ -30,7 +31,7 @@ Streaming Data"* (Appendix A mirrors `music_culture_analysis.R`).
   with **Individualism (IDV)** and **Long-Term Orientation (LTO)**.
 - HCPC clusters differ significantly on **PDI, IDV, UAI, IVR** (ANOVA);
   Kruskal-Wallis confirms PDI/IDV/UAI (non-parametric robustness).
-- All VIF values ≤ 2.31; mild heteroscedasticity in PC3 models addressed with
+- All VIF values ≤ 2.30; mild heteroscedasticity in PC3 models addressed with
   HC3 robust standard errors.
 
 ## Repository Structure
@@ -42,7 +43,7 @@ Streaming Data"* (Appendix A mirrors `music_culture_analysis.R`).
 │   ├── country_culture_gdp.xlsx # Merged analysis-ready data (73 countries)
 │   ├── Final_Data_55_Countries.xlsx  # Nested sample: full 6 Hofstede dims
 │   └── Final_Data_60_Countries.xlsx  # Nested sample: 4 classical dims + GDP
-├── tables/                      # Tables 5-1 … 5-8 (Word, APA-style)
+├── tables/                      # Tables 5-1 … 5-8, 6-1 (Word, APA-style)
 └── figures/                     # PCA, correlation, cluster figures (PDF)
 ```
 

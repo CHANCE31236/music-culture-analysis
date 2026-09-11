@@ -776,3 +776,87 @@ export_apa_table(
 cat("\n=== All diagnostic tables exported to Word ===\n")
 cat("\n=== All tables generated in strict paper order with unified APA format ===\n")
 
+
+# ==============================================================================
+
+# ==============================================================================
+# 9. RQ3 Incremental Explanatory Power: 55-Country Four-Dimension Baseline vs
+#    Six-Dimension Models (added 2026-09 for dissertation Sec. 6.3.2 / Table 6-1)
+# ==============================================================================
+# The submitted dissertation states (Sec. 6.3.2) that "supplementary
+# hierarchical comparisons were considered within the same 55-country baseline
+# tracking environment" but did not include the 55-country four-dimension
+# baseline tables. This block produces the baseline models, the nested F-tests
+# and Table 6-1, so every number quoted in Sec. 6.3.2 is directly reproducible.
+
+rq3_models <- list()
+for (pc in c("PC1_Score", "PC2_Score", "PC3_Score")) {
+  rq3_models[[paste0(pc, "_55_4dim_nogdp")]] <- lm(as.formula(paste(pc, "~ pdi + idv + mas + uai")), data = export_55_data)
+  rq3_models[[paste0(pc, "_55_4dim_gdp")]]   <- lm(as.formula(paste(pc, "~ pdi + idv + mas + uai + log(`2021GDPPC`)")), data = export_55_data)
+}
+
+cat("\n=== [RQ3] 55-country incremental comparison (4-dim baseline vs 6-dim, no GDP) ===\n")
+rq3_f <- list()
+for (pc in c("PC1_Score", "PC2_Score", "PC3_Score")) {
+  m4d <- rq3_models[[paste0(pc, "_55_4dim_nogdp")]]
+  m6d <- models[[paste0(pc, "_55_nogdp")]]
+  ft  <- anova(m4d, m6d)
+  rq3_f[[pc]] <- c(F = ft$F[2], p = ft$"Pr(>F)"[2], dR2 = summary(m6d)$r.squared - summary(m4d)$r.squared,
+                   dadjR2 = summary(m6d)$adj.r.squared - summary(m4d)$adj.r.squared)
+  cat("\n", pc, "\n")
+  cat("  baseline 4-dim: R2=", summary(m4d)$r.squared,
+      " adjR2=", summary(m4d)$adj.r.squared,
+      " AIC=", AIC(m4d), " BIC=", BIC(m4d), " RMSE=", sqrt(mean(resid(m4d)^2)), "\n")
+  cat("  full 6-dim:     R2=", summary(m6d)$r.squared,
+      " adjR2=", summary(m6d)$adj.r.squared,
+      " AIC=", AIC(m6d), " BIC=", BIC(m6d), " RMSE=", sqrt(mean(resid(m6d)^2)), "\n")
+  cat("  delta R2=", summary(m6d)$r.squared - summary(m4d)$r.squared,
+      " delta adjR2=", summary(m6d)$adj.r.squared - summary(m4d)$adj.r.squared,
+      " F(2, 48)=", ft$F[2], " p=", ft$"Pr(>F)"[2], "\n")
+}
+
+cat("\n=== [RQ3] 55-country incremental comparison (4-dim+GDP vs 6-dim+GDP) ===\n")
+for (pc in c("PC1_Score", "PC2_Score", "PC3_Score")) {
+  m4d <- rq3_models[[paste0(pc, "_55_4dim_gdp")]]
+  m6d <- models[[paste0(pc, "_55_gdp")]]
+  ft  <- anova(m4d, m6d)
+  cat("\n", pc, "\n")
+  cat("  baseline 4-dim+GDP: R2=", summary(m4d)$r.squared,
+      " adjR2=", summary(m4d)$adj.r.squared,
+      " AIC=", AIC(m4d), " BIC=", BIC(m4d), " RMSE=", sqrt(mean(resid(m4d)^2)), "\n")
+  cat("  full 6-dim+GDP:     R2=", summary(m6d)$r.squared,
+      " adjR2=", summary(m6d)$adj.r.squared,
+      " AIC=", AIC(m6d), " BIC=", BIC(m6d), " RMSE=", sqrt(mean(resid(m6d)^2)), "\n")
+  cat("  delta R2=", summary(m6d)$r.squared - summary(m4d)$r.squared,
+      " delta adjR2=", summary(m6d)$adj.r.squared - summary(m4d)$adj.r.squared,
+      " F(2, 48)=", ft$F[2], " p=", ft$"Pr(>F)"[2], "\n")
+}
+
+# Export Table 6-1 (no-GDP comparison, matching the six-dimension columns of
+# Tables C1-C3). Star coding follows the nested F-test p-value.
+t61 <- data.frame(
+  `Aesthetic Factor` = c("PC1 (Energetic and Upbeat)", "PC2 (Rhythmic-Live vs. Vocal-Studio)", "PC3 (Instrumental Purity)"),
+  `R² (4-dim)`   = round(sapply(c("PC1_Score","PC2_Score","PC3_Score"), function(pc) summary(rq3_models[[paste0(pc,"_55_4dim_nogdp")]])$r.squared), 3),
+  `R² (6-dim)`   = round(sapply(c("PC1_Score","PC2_Score","PC3_Score"), function(pc) summary(models[[paste0(pc,"_55_nogdp")]])$r.squared), 3),
+  `Adj. R² (4-dim)` = round(sapply(c("PC1_Score","PC2_Score","PC3_Score"), function(pc) summary(rq3_models[[paste0(pc,"_55_4dim_nogdp")]])$adj.r.squared), 3),
+  `Adj. R² (6-dim)` = round(sapply(c("PC1_Score","PC2_Score","PC3_Score"), function(pc) summary(models[[paste0(pc,"_55_nogdp")]])$adj.r.squared), 3),
+  `ΔAdj. R²`     = round(sapply(c("PC1_Score","PC2_Score","PC3_Score"), function(pc) rq3_f[[pc]]["dadjR2"]), 3),
+  `F(2, 48)`     = round(sapply(c("PC1_Score","PC2_Score","PC3_Score"), function(pc) rq3_f[[pc]]["F"]), 2),
+  `p`            = round(sapply(c("PC1_Score","PC2_Score","PC3_Score"), function(pc) rq3_f[[pc]]["p"]), 3),
+  check.names = FALSE
+)
+print(t61)
+export_apa_table(
+  data_df = t61,
+  table_title = "Table 6-1 Incremental Explanatory Power of LTO and IVR within the 55-Country Core Sample",
+  file_name = "Table_6-1_RQ3_Incremental_Comparison.docx",
+  note_text = "Note: Four-dimension models include PDI, IDV, MAS and UAI; six-dimension models additionally include LTO and IVR. Nested F-tests compare the six-dimension against the four-dimension specification (df = 2, 48) within the 55-country sample, without GDP control. * p<0.05, ** p<0.01, *** p<0.001."
+)
+cat("\n=== Table 6-1 exported to Word ===\n")
+
+cat("\n=== [Sec 5.2.1] Eigenvalues (full spectrum, first 5) ===\n")
+print(res.pca_all$eig[1:5, ])
+
+cat("\n=== [Sec 5.1.2] UAI extremes for regional description ===\n")
+uai_sorted <- sort(export_55_data$uai)
+print(head(uai_sorted, 5)); print(tail(uai_sorted, 5))
