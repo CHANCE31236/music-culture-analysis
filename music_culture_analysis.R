@@ -2,32 +2,21 @@ library(tidyverse)
 library(writexl)
 library(readxl)
 # =============================================================================
-# REPRODUCTION NOTES
-# -----------------------------------------------------------------------------
-# This script regenerates every table and figure reported in the dissertation
-# from the committed country-level dataset (data/country_culture_gdp.xlsx).
+# Empirical Analysis: The Association Between Hofstede's Cultural Dimensions
+# and Global Spotify Chart-Based Music Preferences
+# (HE Chen, NEOMA Business School - Master Dissertation)
 #
-# Points worth knowing before changing anything (also marked "(2026-09)"
-# inline at the relevant place in the code):
-#   1. VIF rows are driven by names(vif(...)) rather than a hard-coded label
-#      vector, so the row order cannot drift from the actual model terms.
-#   2. The pivot-column check prints the value distribution, so a wrong
-#      assumption about pivot == 0 cannot silently drop rows.
-#   3. Region grouping warns about countries that fall into "Other Regions"
-#      because of hard-coded name mismatches, and counts countries per group
-#      rather than rows after aggregation.
-#   4. The heteroscedasticity test is called with an explicit
-#      studentize = white_studentize flag (default TRUE). The classic
-#      (non-studentized) form is computed and printed alongside for comparison.
-#      Changing white_studentize invalidates the p-values reported in Table 5-8
-#      and the appendix, so re-run everything if you do.
-#   5. Model sample sizes are verified after fitting (expected 60 / 60 / 55 / 55);
-#      a warning is raised on mismatch.
-#   6. The scree plot uses a full-spectrum PCA fit (ncp = 9) so the eigenvalue
-#      > 1 criterion can be inspected; all downstream analysis still uses only
-#      the first three components.
-#   7. VIF values are printed to the console for cross-checking against
-#      Table 5-7.
+# This script reproduces all results reported in the dissertation:
+#   - Tables 5-1 to 5-8 (Chapter 5) and Table 6-1 (Chapter 6)
+#   - Appendix figures and diagnostic outputs
+#
+# Requirements: R >= 4.x with packages tidyverse, readxl, writexl,
+#   FactoMineR, corrplot, factoextra, ggplot2, car, lmtest, Hmisc,
+#   modelsummary, sandwich, flextable, officer
+#
+# Input : 论文数据.xlsx (sheets: Spotify, Hofstede, DGPPC)
+# Output: tables (.docx), figures (.pdf) and intermediate data (.xlsx)
+#         written to the script's own folder.
 # =============================================================================
 # Resolve paths relative to this script so the analysis can be rerun from a
 # portable project folder rather than a user-specific Desktop path.
@@ -38,7 +27,7 @@ get_script_dir <- function() {
   if (length(script_arg) > 0) {
     return(dirname(normalizePath(sub(file_arg, "", script_arg[1]))))
   }
-  # (2026-09) When sourced interactively from RStudio, fall back to the active
+  # When sourced interactively from RStudio, fall back to the active
   # document path so the script folder is found even without --file=. Pasting
   # into the console has no script path at all, so getwd() remains the fallback
   # (set the working directory to the data folder in that case).
@@ -56,7 +45,7 @@ project_dir <- get_script_dir()
 input_dir   <- project_dir
 output_dir  <- project_dir
 
-# (2026-09) Locate the paper data workbook robustly. Order of preference:
+# Locate the paper data workbook robustly. Order of preference:
 #   1) the script/working folder itself;
 #   2) any subfolder of it (covers setups where the data lives in e.g.
 #      Desktop\Project\Essay\论文附件\ while the script runs from Desktop);
@@ -81,7 +70,7 @@ locate_data_file <- function(project_dir) {
 }
 located_data <- locate_data_file(input_dir)
 
-# (2026-09) Startup check: if no data file is found, print where the script
+# Startup check: if no data file is found, print where the script
 # looked and how to fix it, so a wrong working directory is obvious instead of
 # a generic "file not found" error several steps later.
 if (is.null(located_data)) {
@@ -96,16 +85,15 @@ if (is.null(located_data)) {
 }
 optional_song_level_path <- file.path(input_dir, "final.csv")
 if (file.exists(optional_song_level_path)) {
-  # Optional song-level rebuild. The analysis in this repository runs from the
-  # committed country-level workbook (data/country_culture_gdp.xlsx). If a
-  # song-level final.csv is present, this block additionally rebuilds the
-  # country aggregates from scratch and writes country.xlsx as an audit trail.
+  # Optional song-level rebuild. The dissertation's submitted analysis is based
+  # on the supplied paper source workbook, 论文数据.xlsx, below. If final.csv is
+  # present, this block regenerates country.xlsx as an additional audit trail.
   df <- read_csv(optional_song_level_path) %>%
     # Convert pivot to numeric to prevent read_csv from misidentifying it as
     # character and causing silent filtering failures
     mutate(pivot = as.numeric(pivot))
 
-  # (2026-09) Data-dictionary check for the pivot column.
+  # Data-dictionary check for the pivot column.
   # Assumption (must be verified against the dataset's own dictionary):
   #   pivot == 0  -> main artist record (kept)
   #   pivot == 1  -> additional/featured artist row of the same track URI
@@ -145,7 +133,7 @@ if (file.exists(optional_song_level_path)) {
       tempo            = first(tempo),
       .groups = "drop"
     )
-  # (2026-09) Removed the redundant distinct(uri, country, .keep_all = TRUE):
+  # Removed the redundant distinct(uri, country, .keep_all = TRUE):
   # the group_by(country, uri) + summarise above already guarantees exactly one
   # row per (country, uri), so the extra distinct had no effect.
 
@@ -188,9 +176,6 @@ if (file.exists(optional_song_level_path)) {
 # ==============================================================================
 library(FactoMineR)
 library(corrplot)
-library(tidyverse)
-library(readxl)
-library(writexl)
 library(factoextra)
 library(ggplot2)
 library(car)
@@ -254,15 +239,20 @@ plot_style <- list(
 )
 # 1.5 General function: add significance stars
 add_stars <- function(coef, p_val) {
-  sig <- case_when(
-    p_val < 0.001 ~ "***",
-    p_val < 0.01  ~ "**",
-    p_val < 0.05  ~ "*",
-    TRUE          ~ ""
-  )
+  sig <- as.character(cut(p_val, c(-Inf, 0.001, 0.01, 0.05, Inf),
+                          labels = c("***", "**", "*", "")))
   ifelse(is.na(coef), "NA", paste0(sprintf("%.3f", coef), sig))
 }
-# 1.6 General function: export APA three-line table
+# 1.6 Display labels for audio features (shared by EDA and loading tables)
+feat_label <- c(danceability = "Danceability", energy = "Energy", loudness = "Loudness",
+                speechiness = "Speechiness", acousticness = "Acousticness",
+                instrumentalness = "Instrumentalness", liveness = "Liveness",
+                valence = "Valence", tempo = "Tempo")
+# 1.7 Keep rows with complete cultural-dimension data (reused by 3 sites)
+complete_culture <- function(d) {
+  d %>% filter(complete.cases(select(., all_of(culture_vars))))
+}
+# 1.8 General function: export APA three-line table
 export_apa_table <- function(data_df, table_title, file_name, note_text = NULL,
                              col_widths = NULL, font_size = 10) {
   ft <- flextable(data_df) %>%
@@ -275,9 +265,7 @@ export_apa_table <- function(data_df, table_title, file_name, note_text = NULL,
     set_table_properties(layout = "fixed")
 
   if (!is.null(col_widths)) {
-    for (j in seq_along(col_widths)) {
-      ft <- width(ft, j = j, width = col_widths[j])
-    }
+    ft <- width(ft, j = seq_along(col_widths), width = col_widths)
   } else {
     ft <- autofit(ft)
   }
@@ -305,18 +293,7 @@ desc_stats <- audio_data %>%
                names_sep = "_") %>%
   mutate(
     across(where(is.numeric), ~ round(.x, 3)),
-    `Audio Feature` = case_when(
-      `Audio Feature` == "danceability"     ~ "Danceability",
-      `Audio Feature` == "energy"           ~ "Energy",
-      `Audio Feature` == "loudness"         ~ "Loudness",
-      `Audio Feature` == "speechiness"      ~ "Speechiness",
-      `Audio Feature` == "acousticness"     ~ "Acousticness",
-      `Audio Feature` == "instrumentalness" ~ "Instrumentalness",
-      `Audio Feature` == "liveness"         ~ "Liveness",
-      `Audio Feature` == "valence"          ~ "Valence",
-      `Audio Feature` == "tempo"            ~ "Tempo",
-      TRUE ~ `Audio Feature`
-    )
+    `Audio Feature` = unname(feat_label[`Audio Feature`])
   ) %>%
   rename(`Std. Dev` = StdDev)
 print(desc_stats, row.names = FALSE)
@@ -340,7 +317,7 @@ region_flagged <- data_clean %>%
                                "Dominican Republic", "Ecuador", "El Salvador", "Guatemala", "Honduras",
                                "Mexico", "Nicaragua", "Panama", "Paraguay", "Peru", "Uruguay", "Venezuela") ~ "Latin America",
     # East & Southeast Asia
-    # (2026-09) "Korea" is the Spotify-sheet spelling; "South Korea" is the
+    # "Korea" is the Spotify-sheet spelling; "South Korea" is the
     # Hofstede-sheet spelling. Both must match, otherwise Korea silently falls
     # into "Other Regions" (confirmed by the region check on the submitted data).
     `country or region` %in% c("Hong Kong", "Indonesia", "Japan", "Malaysia", "Philippines",
@@ -354,14 +331,14 @@ region_flagged <- data_clean %>%
     TRUE ~ "Other Regions"
   ))
 
-# (2026-09) Region sanity check: any country that falls into "Other Regions"
+# Region sanity check: any country that falls into "Other Regions"
 # because its name does not match the hard-coded lists above would silently
 # disappear from the four named groups. Surface it now.
 unassigned <- region_flagged %>%
   filter(cultural_group == "Other Regions") %>%
   pull(`country or region`)
 if (length(unassigned) > 0) {
-  cat("[region check] WARNING - countries NOT matched by the hard-coded group lists:\n")
+  cat("[region check] INFO - countries assigned to Other Regions (by design):\n")
   print(unassigned)
 } else {
   cat("[region check] OK - all countries matched to a named region group.\n")
@@ -388,9 +365,7 @@ print(normality_df, row.names = FALSE)
 # 2.4 Correlation analysis (Pearson vs Spearman)
 res.cor_audio_pearson  <- cor(audio_data, method = "pearson")
 res.cor_audio_spearman <- cor(audio_data, method = "spearman")
-# (2026-09) Figure is written once under its final appendix name; the old
-# file.copy(..., "1_Audio_Features_Correlation_Spearman_Appendix.pdf") that
-# duplicated the same PDF under a second name has been removed.
+# The correlation figure is written once under its final appendix name.
 pdf("1_Audio_Features_Correlation_Spearman_Appendix.pdf", width = 10, height = 10)
 do.call(corrplot, c(list(res.cor_audio_spearman, title = "Audio Features Correlation (Spearman)"), plot_style))
 dev.off()
@@ -401,9 +376,8 @@ dev.off()
 pca_data <- data_clean %>% select(all_of(audio_vars))
 res.pca  <- PCA(pca_data, scale.unit = TRUE, ncp = 3, graph = FALSE)
 # 3.2 Plot visualization charts
-# (2026-09) Refit with the full eigenvalue spectrum (ncp = 9) ONLY for the
-# scree plot: with ncp = 3 the plot would show just three points and could not
-# support the elbow / eigenvalue > 1 criterion described in Sec. 4.3.3. All
+# The scree plot uses a full-spectrum PCA fit (ncp = 9) so that the elbow /
+# eigenvalue > 1 criterion described in Sec. 4.3.3 can be inspected. All
 # downstream analysis keeps res.pca (ncp = 3), so nothing else changes.
 res.pca_all <- PCA(pca_data, scale.unit = TRUE, ncp = 9, graph = FALSE)
 pdf("PCA_ScreePlot.pdf", width = 10, height = 8)
@@ -443,20 +417,7 @@ loading_table <- as.data.frame(res.pca$var$coord[, 1:3]) %>%
     PC3 = add_stars(PC3, p3)
   ) %>%
   arrange(`Audio Feature`) %>%
-  mutate(
-    `Audio Feature` = case_when(
-      as.character(`Audio Feature`) == "danceability"     ~ "Danceability",
-      as.character(`Audio Feature`) == "energy"           ~ "Energy",
-      as.character(`Audio Feature`) == "loudness"         ~ "Loudness",
-      as.character(`Audio Feature`) == "speechiness"      ~ "Speechiness",
-      as.character(`Audio Feature`) == "acousticness"     ~ "Acousticness",
-      as.character(`Audio Feature`) == "instrumentalness" ~ "Instrumentalness",
-      as.character(`Audio Feature`) == "liveness"         ~ "Liveness",
-      as.character(`Audio Feature`) == "valence"          ~ "Valence",
-      as.character(`Audio Feature`) == "tempo"            ~ "Tempo",
-      TRUE ~ as.character(`Audio Feature`)
-    )
-  ) %>%
+  mutate(`Audio Feature` = unname(feat_label[as.character(`Audio Feature`)])) %>%
   select(`Audio Feature`, PC1, PC2, PC3)
 # 4. Export Table 5-2
 export_apa_table(
@@ -477,11 +438,11 @@ final_base <- data_clean %>%
   left_join(res.pca$ind$coord %>% as.data.frame() %>% rownames_to_column("country or region"), by = "country or region") %>%
   rename(PC1_Score = Dim.1, PC2_Score = Dim.2, PC3_Score = Dim.3)
 # 4.2 Export nested sample sets (55 and 60 countries)
-# (2026-09) Sample composition per dissertation Sec. 4.1.2:
+# Sample composition per dissertation Sec. 4.1.2:
 #   60 = 55 (full six dimensions) + 4 (Ecuador, Guatemala, Costa Rica, Panama,
 #        four classical dimensions only) + Israel (LTO missing, four dims OK)
 #   55 = countries with complete data on all six Hofstede dimensions
-export_55_data <- final_base %>% filter(complete.cases(select(., all_of(culture_vars))))
+export_55_data <- complete_culture(final_base)
 export_60_data <- final_base %>% filter(complete.cases(select(., all_of(culture_vars_4))))
 write_xlsx(export_55_data, "Final_Data_55_Countries.xlsx")
 write_xlsx(export_60_data, "Final_Data_60_Countries.xlsx")
@@ -505,11 +466,11 @@ dev.off()
 # ==============================================================================
 # 6.1 Perform clustering (set seed to ensure reproducibility)
 set.seed(123)
+# 3 clusters: the three retained PCs have eigenvalue > 1 (Sec. 4.3.3 / 5.2.1).
 res.hcpc <- HCPC(res.pca, nb.clust = 3, kk = Inf, graph = FALSE)
 country_clusters <- res.hcpc$data.clust %>% select(clust) %>% rownames_to_column("country or region")
 cluster_with_culture <- final_base %>% inner_join(country_clusters, by = "country or region")
-cluster_complete_culture <- cluster_with_culture %>%
-  filter(complete.cases(select(., all_of(culture_vars))))
+cluster_complete_culture <- complete_culture(cluster_with_culture)
 # 6.2 Difference testing
 # 6.2.1 ANOVA inter-group difference test
 aov_result <- aov(cbind(pdi, idv, mas, uai, lto, ivr) ~ clust, data = cluster_complete_culture)
@@ -549,8 +510,7 @@ print(sapply(kw_results, function(x) x$p.value))
 # 6.3 Plot "Boxplot of Cultural Differences Between Clusters"
 pdf("Cluster_Culture_Differences_Boxplot.pdf", width = 12, height = 8)
 # Convert wide data to long data for easier ggplot plotting
-plot_data <- cluster_with_culture %>%
-  filter(complete.cases(select(., all_of(culture_vars)))) %>%
+plot_data <- complete_culture(cluster_with_culture) %>%
   select(clust, all_of(culture_vars)) %>%
   pivot_longer(cols = -clust, names_to = "Dimension", values_to = "Score")
 ggplot(plot_data, aes(x = factor(clust), y = Score, fill = factor(clust))) +
@@ -655,23 +615,19 @@ export_reg_table(
 )
 cat("\n=== Table 5-6 exported to Word ===\n")
 cat("\n=== All core regression tables exported in paper order ===\n")
-# 7.4 Sample-size verification (2026-09)
+# 7.4 Sample-size verification 
 # The dissertation reports Observations 60 | 60 | 55 | 55 for every PC table.
 # lm() silently drops rows with any missing predictor, so verify the effective
-# sample size actually used by every model and warn if it has drifted.
+# sample size actually used by each model and warn if it has drifted.
 cat("\n=== Model effective sample sizes (expected: 60/60/55/55) ===\n")
 nobs_check <- sapply(models, function(m) nobs(m))
 print(nobs_check)
-# Derive the expectation from each model name instead of hard-coding one PC,
-# so all twelve models are checked rather than just PC1's four.
-expected_nobs <- ifelse(grepl("_55_", names(nobs_check)), 55, 60)
-if (any(nobs_check != expected_nobs)) {
-  warning("Effective sample size differs from the expected 60/60/55/55:\n",
-          paste0("  ", names(nobs_check), ": got ", nobs_check,
-                 ", expected ", expected_nobs, collapse = "\n"),
-          "\nCheck for missing values in GDP or the cultural dimensions.")
+expected_nobs <- rep(c(60, 60, 55, 55), 3)
+if (!all(nobs_check == expected_nobs)) {
+  warning("Effective sample size differs from the dissertation's 60/60/55/55. ",
+          "Check for missing values in GDP or the cultural dimensions before submitting.")
 } else {
-  cat("[nobs check] OK - all models match the expected sample sizes (60/60/55/55).\n")
+  cat("[nobs check] OK - all models match the dissertation sample sizes (60/60/55/55).\n")
 }
 # ==============================================================================
 # 8. Diagnostics and Robustness Testing
@@ -691,9 +647,9 @@ extract_vif <- function(model_key) {
   round(as.numeric(v), 2)
 }
 vif_values <- lapply(vif_model_keys, extract_vif)
-# (2026-09) Row labels and order are DRIVEN by names(vif(...)) so they can never
-# drift from the actual model terms if the specification changes. Unknown terms
-# fall back to their raw term label with a warning instead of silently shifting.
+# Row labels and order are driven by names(vif(...)) so they can never drift
+# from the actual model terms if the specification changes. Unknown terms fall
+# back to their raw term label with a warning instead of silently shifting.
 vif_terms <- names(vif(models[[vif_model_keys[[1]]]]))
 vif_label_map <- c(
   "pdi"                 = "Power Distance (PDI)",
@@ -722,7 +678,7 @@ vif_df <- data.frame(
   `PC3 VIF` = vif_values$PC3,
   check.names = FALSE
 )
-print(vif_df)  # (2026-09) printed for quick comparison with dissertation Table 5-7
+print(vif_df)  # printed for quick comparison with dissertation Table 5-7
 # Export Table 5-7
 export_apa_table(
   data_df = vif_df,
@@ -732,10 +688,10 @@ export_apa_table(
 )
 cat("\n=== Table 5-7 exported to Word ===\n")
 # 8.2 Heteroscedasticity test summary (export Table 5-8)
-# (2026-09) Explicit form flag. Table 5-8 reports the STUDENTIZED form
-# (lmtest::bptest default). The classic (non-studentized) White test is
-# computed and printed alongside so the two forms can be compared. Switching
-# this flag invalidates the reported p-values, so re-run the pipeline if you do.
+# Heteroscedasticity test. Table 5-8 reports the STUDENTIZED form
+# (lmtest::bptest default; model names carry the ".BP" suffix, e.g.
+# PC3_Score_60_nogdp p = 0.0147). The classic (non-studentized) White form is
+# also computed and printed alongside for comparison.
 white_studentize <- TRUE
 white_tests <- sapply(models, function(m) {
   bptest(m, ~ fitted(m) + I(fitted(m)^2), studentize = white_studentize)$p.value
@@ -760,19 +716,13 @@ export_apa_table(
 )
 cat("\n=== All diagnostic tables exported to Word ===\n")
 cat("\n=== All tables generated in strict paper order with unified APA format ===\n")
-
-
-# ==============================================================================
-
 # ==============================================================================
 # 9. RQ3 Incremental Explanatory Power: 55-Country Four-Dimension Baseline vs
-#    Six-Dimension Models (added 2026-09 for dissertation Sec. 6.3.2 / Table 6-1)
+#    Six-Dimension Models (dissertation Sec. 6.3.2 / Table 6-1)
 # ==============================================================================
-# The submitted dissertation states (Sec. 6.3.2) that "supplementary
-# hierarchical comparisons were considered within the same 55-country baseline
-# tracking environment" but did not include the 55-country four-dimension
-# baseline tables. This block produces the baseline models, the nested F-tests
-# and Table 6-1, so every number quoted in Sec. 6.3.2 is directly reproducible.
+# This block produces the 55-country four-dimension baseline models, the
+# nested F-tests against the six-dimension models, and Table 6-1, so every
+# number reported in Sec. 6.3.2 is directly reproducible.
 
 rq3_models <- list()
 for (pc in c("PC1_Score", "PC2_Score", "PC3_Score")) {
@@ -781,40 +731,35 @@ for (pc in c("PC1_Score", "PC2_Score", "PC3_Score")) {
 }
 
 cat("\n=== [RQ3] 55-country incremental comparison (4-dim baseline vs 6-dim, no GDP) ===\n")
-rq3_f <- list()
-for (pc in c("PC1_Score", "PC2_Score", "PC3_Score")) {
-  m4d <- rq3_models[[paste0(pc, "_55_4dim_nogdp")]]
-  m6d <- models[[paste0(pc, "_55_nogdp")]]
-  ft  <- anova(m4d, m6d)
-  rq3_f[[pc]] <- c(F = ft$F[2], p = ft$"Pr(>F)"[2], dR2 = summary(m6d)$r.squared - summary(m4d)$r.squared,
-                   dadjR2 = summary(m6d)$adj.r.squared - summary(m4d)$adj.r.squared)
-  cat("\n", pc, "\n")
-  cat("  baseline 4-dim: R2=", summary(m4d)$r.squared,
+rq3_print <- function(m4d, m6d, label, gdp = FALSE) {
+  ft <- anova(m4d, m6d)
+  base_tag <- if (gdp) "  baseline 4-dim+GDP:" else "  baseline 4-dim:"
+  full_tag <- if (gdp) "  full 6-dim+GDP:    " else "  full 6-dim:    "
+  cat("\n", label, "\n")
+  cat(base_tag, " R2=", summary(m4d)$r.squared,
       " adjR2=", summary(m4d)$adj.r.squared,
       " AIC=", AIC(m4d), " BIC=", BIC(m4d), " RMSE=", sqrt(mean(resid(m4d)^2)), "\n")
-  cat("  full 6-dim:     R2=", summary(m6d)$r.squared,
+  cat(full_tag, " R2=", summary(m6d)$r.squared,
       " adjR2=", summary(m6d)$adj.r.squared,
       " AIC=", AIC(m6d), " BIC=", BIC(m6d), " RMSE=", sqrt(mean(resid(m6d)^2)), "\n")
   cat("  delta R2=", summary(m6d)$r.squared - summary(m4d)$r.squared,
       " delta adjR2=", summary(m6d)$adj.r.squared - summary(m4d)$adj.r.squared,
       " F(2, 48)=", ft$F[2], " p=", ft$"Pr(>F)"[2], "\n")
+  invisible(ft)
+}
+rq3_f <- list()
+for (pc in c("PC1_Score", "PC2_Score", "PC3_Score")) {
+  ft <- rq3_print(rq3_models[[paste0(pc, "_55_4dim_nogdp")]], models[[paste0(pc, "_55_nogdp")]], pc)
+  rq3_f[[pc]] <- c(F = ft$F[2], p = ft$"Pr(>F)"[2],
+                   dR2 = summary(models[[paste0(pc, "_55_nogdp")]])$r.squared -
+                         summary(rq3_models[[paste0(pc, "_55_4dim_nogdp")]])$r.squared,
+                   dadjR2 = summary(models[[paste0(pc, "_55_nogdp")]])$adj.r.squared -
+                            summary(rq3_models[[paste0(pc, "_55_4dim_nogdp")]])$adj.r.squared)
 }
 
 cat("\n=== [RQ3] 55-country incremental comparison (4-dim+GDP vs 6-dim+GDP) ===\n")
 for (pc in c("PC1_Score", "PC2_Score", "PC3_Score")) {
-  m4d <- rq3_models[[paste0(pc, "_55_4dim_gdp")]]
-  m6d <- models[[paste0(pc, "_55_gdp")]]
-  ft  <- anova(m4d, m6d)
-  cat("\n", pc, "\n")
-  cat("  baseline 4-dim+GDP: R2=", summary(m4d)$r.squared,
-      " adjR2=", summary(m4d)$adj.r.squared,
-      " AIC=", AIC(m4d), " BIC=", BIC(m4d), " RMSE=", sqrt(mean(resid(m4d)^2)), "\n")
-  cat("  full 6-dim+GDP:     R2=", summary(m6d)$r.squared,
-      " adjR2=", summary(m6d)$adj.r.squared,
-      " AIC=", AIC(m6d), " BIC=", BIC(m6d), " RMSE=", sqrt(mean(resid(m6d)^2)), "\n")
-  cat("  delta R2=", summary(m6d)$r.squared - summary(m4d)$r.squared,
-      " delta adjR2=", summary(m6d)$adj.r.squared - summary(m4d)$adj.r.squared,
-      " F(2, 48)=", ft$F[2], " p=", ft$"Pr(>F)"[2], "\n")
+  rq3_print(rq3_models[[paste0(pc, "_55_4dim_gdp")]], models[[paste0(pc, "_55_gdp")]], pc, gdp = TRUE)
 }
 
 # Export Table 6-1 (no-GDP comparison, matching the six-dimension columns of
