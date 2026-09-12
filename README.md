@@ -1,16 +1,15 @@
 # Global Music Aesthetics and Cultural Values: A Cross-Country Empirical Study
 
-An empirical study linking **streaming-era music aesthetics** (Spotify audio features)
-to **national cultural values** (Hofstede's six dimensions), using streaming-volume
-weighted country-level aggregates, PCA, hierarchical clustering, and nested
-regression designs.
+An empirical study linking **streaming-era music aesthetics** (Spotify audio
+features) to **national cultural values** (Hofstede's six dimensions), using
+streaming-volume weighted country-level aggregates, PCA, hierarchical
+clustering, and nested regression designs.
 
-This repository contains the complete, reproducible R analysis pipeline that
-generates every table and figure reported in the dissertation *"Global Music
-Aesthetics and Cultural Values: An Empirical Study Based on Cross-Country
-Streaming Data"* (Appendix A mirrors `music_culture_analysis.R`).
+This repository contains the R pipeline that generates every table and figure
+reported in the dissertation *"Global Music Aesthetics and Cultural Values: An
+Empirical Study Based on Cross-Country Streaming Data"*.
 
-## Research Design
+## Research design
 
 | Step | Method | Output |
 | --- | --- | --- |
@@ -22,7 +21,7 @@ Streaming Data"* (Appendix A mirrors `music_culture_analysis.R`).
 | 6. RQ3 incremental analysis | Nested F-tests: 55-country four-dimension baseline (PDI, IDV, MAS, UAI) vs six-dimension model (+ LTO, IVR), without GDP control | Table 6-1 |
 | 7. Diagnostics | VIF (multicollinearity), White / studentized Breusch-Pagan test (heteroscedasticity), HC3 robust standard errors, sample-size audit | Tables 5-7, 5-8 |
 
-## Key Findings (direction of association; see dissertation for full estimates)
+## Key findings (direction of association; see the dissertation for full estimates)
 
 - **PC1 "Energetic & Upbeat"** (high loadings: energy, valence, loudness,
   danceability; negative: acousticness) — negatively associated with
@@ -34,7 +33,7 @@ Streaming Data"* (Appendix A mirrors `music_culture_analysis.R`).
 - All VIF values ≤ 2.30; mild heteroscedasticity in PC3 models addressed with
   HC3 robust standard errors.
 
-## Repository Structure
+## Repository structure
 
 ```
 .
@@ -47,25 +46,31 @@ Streaming Data"* (Appendix A mirrors `music_culture_analysis.R`).
 └── figures/                     # PCA, correlation, cluster figures (PDF)
 ```
 
-## Reproducibility
+## Reproducing the analysis
 
-**Requirements:** R ≥ 4.1 with packages `tidyverse`, `readxl`, `writexl`,
-`FactoMineR`, `factoextra`, `corrplot`, `ggplot2`, `car`, `lmtest`, `Hmisc`,
-`modelsummary`, `sandwich`, `flextable`, `officer`.
+**Requirements:** R ≥ 4.1 with `tidyverse`, `readxl`, `writexl`, `FactoMineR`,
+`factoextra`, `corrplot`, `ggplot2`, `car`, `lmtest`, `Hmisc`, `modelsummary`,
+`sandwich`, `flextable`, `officer`.
 
 ```r
-# From the project folder (place 论文数据.xlsx next to the script, or run the
-# script from anywhere above the data folder — the script auto-locates the
-# workbook, preferring 论文数据.xlsx over the merged country_culture_gdp.xlsx)
 source("music_culture_analysis.R")
 ```
 
-The script runs end-to-end and writes all tables (.docx), figures (.pdf), and
-intermediate data (.xlsx) to the working folder. It includes built-in audit
-checks: data-file locator, region-grouping sanity check, model sample-size
-verification (60/60/55/55), and a VIF cross-check against the dissertation.
+The script locates `data/country_culture_gdp.xlsx` relative to its own path, so
+it can be sourced from anywhere. It runs end to end and writes all tables
+(.docx), figures (.pdf), and intermediate data (.xlsx) to the working folder.
 
-## Data Sources & Licensing
+Built-in checks: data-file locator, region-grouping sanity check, model
+sample-size verification (60/60/55/55), and a VIF cross-check against the
+reported Table 5-7.
+
+The script can also rebuild the country-level aggregates from raw song-level
+data: place a `final.csv` (Kaggle Spotify Weekly Top 200 format) next to the
+script and it will regenerate `country.xlsx` as an audit trail. That step is
+optional — the committed country-level workbook is sufficient for everything
+else.
+
+## Data sources & licensing
 
 - **Spotify audio features & weekly charts:** Spotify Weekly Top 200, Feb 2021 –
   Jul 2022 (Kaggle, Yelexa 2022), 73 countries. Only **aggregated** country-level
@@ -73,11 +78,9 @@ verification (60/60/55/55), and a VIF cross-check against the dissertation.
 - **Cultural dimensions:** Hofstede et al. (2010), six-dimensional model.
 - **Control variable:** GDP per capita 2021 (World Bank).
 
-Aggregated data and code are shared for transparency and replication. If you
-use this work, please cite the dissertation (see reference in the paper).
+The code in this repository is MIT-licensed (see [LICENSE](LICENSE)). The
+underlying data remains subject to the terms of its original sources; the
+Hofstede dimensions and World Bank figures should be cited to their publishers.
 
-## Status
-
-Part of the author's PhD application research portfolio; planned for journal
-submission. Public release is intentional (open science: code and data precede
-submission, preprint and journal peer review follow).
+If you use this work, please cite the dissertation (see the reference in the
+paper).

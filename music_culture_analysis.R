@@ -2,47 +2,32 @@ library(tidyverse)
 library(writexl)
 library(readxl)
 # =============================================================================
-# CHANGELOG / REVISION NOTES (2026-09-11, revised for journal submission)
+# REPRODUCTION NOTES
 # -----------------------------------------------------------------------------
-# This version supersedes the code pasted in Appendix A of the dissertation:
-#   - Appendix A exports VIF as a LONG table (Model | Variable | VIF), but the
-#     dissertation's Table 5-7 is a WIDE table (Variable | PC1/PC2/PC3 VIF).
-#     This file generates the wide table, matching the submitted Table 5-7.
-#     => Before submission, REPLACE the Appendix A code with this file.
-# Changes made in this revision (each marked "(2026-09)" in the code):
-#   1. VIF rows are now driven by names(vif(...)) instead of a hard-coded label
-#      vector, so row order can never drift from the actual model terms.
-#   2. Removed the redundant distinct(uri, country) after group_by+summarise.
-#   3. Added a pivot-column dictionary check: the code assumes pivot == 0 is the
-#      MAIN artist row (Kaggle Spotify Weekly Top 200 dataset, Yelexa 2022; see
-#      dissertation Sec. 4.3.1 "Deduplication"). The check prints the value
-#      distribution so a wrong assumption cannot silently drop data.
-#   4. The duplicated correlation PDF (file.copy under a second name) was
-#      removed; the figure is now written once under its final appendix name.
-#   5. Region grouping (Sec. 2.2) now warns about countries that fall into
-#      "Other Regions" because of hard-coded name mismatches.
-#   6. Heteroscedasticity test: bptest() is called with an EXPLICIT
-#      studentize = white_studentize flag (default TRUE, which reproduces the
-#      submitted Table 5-8 values, e.g. PC3_60_nogdp p = 0.0147). The classic
-#      (non-studentized) White form is also computed and printed for comparison.
-#      If you switch white_studentize to FALSE, every p-value in Table 5-8 /
-#      Appendix D2 and the text (p = 0.0147 / 0.0312) MUST be re-run and
-#      updated in the dissertation.
-#   7. Model sample sizes are now verified against the dissertation
-#      (60 / 60 / 55 / 55) after fitting; a warning is raised on mismatch.
-#   8. The region grouping now also matches "Korea" (the Spotify-sheet
-#      spelling) in addition to "South Korea" (the Hofstede-sheet spelling).
-#      The first run exposed that Korea silently fell into "Other Regions",
-#      which also means the dissertation Sec. 5.1.1 values for East & Southeast
-#      Asia (energy 0.581, loudness -6.800) were computed WITHOUT Korea and
-#      MUST be updated after re-running. The regional size printout now counts
-#      countries per group instead of rows after aggregation.
-#   9. The scree plot now uses a full-spectrum PCA fit (ncp = 9) so the
-#      elbow / eigenvalue > 1 criterion (Sec. 4.3.3) can actually be inspected;
-#      all downstream analysis still uses only the first three components.
-#  10. VIF values are printed to the console for a quick cross-check against
-#      dissertation Table 5-7 (expect 2.19 / 2.30 / 1.18 / 1.08 / 1.69 / 1.58 /
-#      2.23 for PDI / IDV / MAS / UAI / LTO / IVR / log GDPpc).
+# This script regenerates every table and figure reported in the dissertation
+# from the committed country-level dataset (data/country_culture_gdp.xlsx).
+#
+# Points worth knowing before changing anything (also marked "(2026-09)"
+# inline at the relevant place in the code):
+#   1. VIF rows are driven by names(vif(...)) rather than a hard-coded label
+#      vector, so the row order cannot drift from the actual model terms.
+#   2. The pivot-column check prints the value distribution, so a wrong
+#      assumption about pivot == 0 cannot silently drop rows.
+#   3. Region grouping warns about countries that fall into "Other Regions"
+#      because of hard-coded name mismatches, and counts countries per group
+#      rather than rows after aggregation.
+#   4. The heteroscedasticity test is called with an explicit
+#      studentize = white_studentize flag (default TRUE). The classic
+#      (non-studentized) form is computed and printed alongside for comparison.
+#      Changing white_studentize invalidates the p-values reported in Table 5-8
+#      and the appendix, so re-run everything if you do.
+#   5. Model sample sizes are verified after fitting (expected 60 / 60 / 55 / 55);
+#      a warning is raised on mismatch.
+#   6. The scree plot uses a full-spectrum PCA fit (ncp = 9) so the eigenvalue
+#      > 1 criterion can be inspected; all downstream analysis still uses only
+#      the first three components.
+#   7. VIF values are printed to the console for cross-checking against
+#      Table 5-7.
 # =============================================================================
 # Resolve paths relative to this script so the analysis can be rerun from a
 # portable project folder rather than a user-specific Desktop path.
@@ -111,9 +96,10 @@ if (is.null(located_data)) {
 }
 optional_song_level_path <- file.path(input_dir, "final.csv")
 if (file.exists(optional_song_level_path)) {
-  # Optional song-level rebuild. The dissertation's submitted analysis is based
-  # on the supplied paper source workbook, 论文数据.xlsx, below. If final.csv is
-  # present, this block regenerates country.xlsx as an additional audit trail.
+  # Optional song-level rebuild. The analysis in this repository runs from the
+  # committed country-level workbook (data/country_culture_gdp.xlsx). If a
+  # song-level final.csv is present, this block additionally rebuilds the
+  # country aggregates from scratch and writes country.xlsx as an audit trail.
   df <- read_csv(optional_song_level_path) %>%
     # Convert pivot to numeric to prevent read_csv from misidentifying it as
     # character and causing silent filtering failures
@@ -672,18 +658,20 @@ cat("\n=== All core regression tables exported in paper order ===\n")
 # 7.4 Sample-size verification (2026-09)
 # The dissertation reports Observations 60 | 60 | 55 | 55 for every PC table.
 # lm() silently drops rows with any missing predictor, so verify the effective
-# sample size actually used by each model and warn if it has drifted.
+# sample size actually used by every model and warn if it has drifted.
 cat("\n=== Model effective sample sizes (expected: 60/60/55/55) ===\n")
 nobs_check <- sapply(models, function(m) nobs(m))
 print(nobs_check)
-expected_nobs <- c("PC1_Score_60_nogdp" = 60, "PC1_Score_60_gdp" = 60,
-                   "PC1_Score_55_nogdp" = 55, "PC1_Score_55_gdp" = 55)
-if (any(nobs_check[c("PC1_Score_60_nogdp", "PC1_Score_60_gdp")] != 60) ||
-    any(nobs_check[c("PC1_Score_55_nogdp", "PC1_Score_55_gdp")] != 55)) {
-  warning("Effective sample size differs from the dissertation's 60/60/55/55. ",
-          "Check for missing values in GDP or the cultural dimensions before submitting.")
+# Derive the expectation from each model name instead of hard-coding one PC,
+# so all twelve models are checked rather than just PC1's four.
+expected_nobs <- ifelse(grepl("_55_", names(nobs_check)), 55, 60)
+if (any(nobs_check != expected_nobs)) {
+  warning("Effective sample size differs from the expected 60/60/55/55:\n",
+          paste0("  ", names(nobs_check), ": got ", nobs_check,
+                 ", expected ", expected_nobs, collapse = "\n"),
+          "\nCheck for missing values in GDP or the cultural dimensions.")
 } else {
-  cat("[nobs check] OK - all models match the dissertation sample sizes (60/60/55/55).\n")
+  cat("[nobs check] OK - all models match the expected sample sizes (60/60/55/55).\n")
 }
 # ==============================================================================
 # 8. Diagnostics and Robustness Testing
@@ -744,13 +732,10 @@ export_apa_table(
 )
 cat("\n=== Table 5-7 exported to Word ===\n")
 # 8.2 Heteroscedasticity test summary (export Table 5-8)
-# (2026-09) Explicit form flag. The dissertation's Table 5-8 reports the
-# STUDENTIZED form (lmtest::bptest default; model names carry the ".BP"
-# suffix, e.g. PC3_Score_60_nogdp p = 0.0147). Keep white_studentize = TRUE to
-# reproduce those values. The classic (non-studentized) White test is computed
-# and printed alongside so the two forms can be compared. If you switch this
-# flag to FALSE, re-run EVERYTHING and update Table 5-8, Appendix D2 and the
-# p-values quoted in the text (Sec. 5.5.3).
+# (2026-09) Explicit form flag. Table 5-8 reports the STUDENTIZED form
+# (lmtest::bptest default). The classic (non-studentized) White test is
+# computed and printed alongside so the two forms can be compared. Switching
+# this flag invalidates the reported p-values, so re-run the pipeline if you do.
 white_studentize <- TRUE
 white_tests <- sapply(models, function(m) {
   bptest(m, ~ fitted(m) + I(fitted(m)^2), studentize = white_studentize)$p.value
