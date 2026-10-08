@@ -53,12 +53,20 @@ Empirical Study Based on Cross-Country Streaming Data"*.
 `sandwich`, `flextable`, `officer`.
 
 ```r
+install.packages(c("tidyverse", "readxl", "writexl", "FactoMineR", "factoextra",
+                   "corrplot", "car", "lmtest", "Hmisc", "modelsummary",
+                   "sandwich", "flextable", "officer"))
 source("music_culture_analysis.R")
 ```
 
+Or run `Rscript --vanilla music_culture_analysis.R`. Set
+`MUSIC_CULTURE_OUTPUT_DIR` to select another output directory.
+
 The script locates `data/country_culture_gdp.xlsx` relative to its own path, so
 it can be sourced from anywhere. It runs end to end and writes all tables
-(.docx), figures (.pdf), and intermediate data (.xlsx) to the working folder.
+(.docx), figures (.pdf), intermediate data (.xlsx), and `session-info.txt` to
+`outputs/`. The directory is excluded from Git, and the caller's working
+directory is restored when analysis completes.
 
 Built-in checks: data-file locator, region-grouping sanity check, model
 sample-size verification (60/60/55/55), and a VIF cross-check against the
@@ -69,6 +77,23 @@ data: place a `final.csv` (Kaggle Spotify Weekly Top 200 format) next to the
 script and it will regenerate `country.xlsx` as an audit trail. That step is
 optional — the committed country-level workbook is sufficient for everything
 else.
+
+## Validation and interpretation
+
+```bash
+Rscript --vanilla tests/smoke.R
+```
+
+The smoke check runs the complete analysis from another working directory and
+verifies the 55/60-country workbooks, nine Word tables, PDF figures, and the R
+session record. GitHub Actions runs it on pull requests.
+
+The script validates country identifiers, numeric analysis fields, positive GDP,
+and the expected 73/60/55-country samples before producing tables. The
+three-cluster HCPC specification is a research choice; the number of retained
+principal components does not by itself determine the number of clusters.
+The heteroscedasticity auxiliary regression uses fitted values and their square.
+Reported coefficients describe cross-country associations.
 
 ## Data sources & licensing
 
