@@ -1,3 +1,16 @@
+local({
+original_wd <- getwd()
+on.exit(setwd(original_wd), add = TRUE)
+
+required_packages <- c("tidyverse", "writexl", "readxl", "FactoMineR",
+                       "corrplot", "factoextra", "car", "lmtest", "Hmisc",
+                       "modelsummary", "sandwich", "flextable", "officer")
+missing_packages <- required_packages[!vapply(required_packages, requireNamespace,
+                                            quietly = TRUE, FUN.VALUE = logical(1))]
+if (length(missing_packages)) {
+  stop("Install the required packages before running: install.packages(c(",
+       paste(sprintf('"%s"', missing_packages), collapse = ", "), "))")
+}
 library(tidyverse)
 library(writexl)
 library(readxl)
@@ -16,11 +29,19 @@ library(readxl)
 #
 # Input : 论文数据.xlsx (sheets: Spotify, Hofstede, DGPPC)
 # Output: tables (.docx), figures (.pdf) and intermediate data (.xlsx)
-#         written to the script's own folder.
+#         written to outputs/ relative to this script.
 # =============================================================================
 # Resolve paths relative to this script so the analysis can be rerun from a
 # portable project folder rather than a user-specific Desktop path.
 get_script_dir <- function() {
+  # source() records the source file in an enclosing frame. Prefer that path
+  # over --file=, which may name a caller that sources this analysis.
+  for (frame in rev(sys.frames())) {
+    if (!is.null(frame$ofile) &&
+        basename(frame$ofile) == "music_culture_analysis.R") {
+      return(dirname(normalizePath(frame$ofile, mustWork = TRUE)))
+    }
+  }
   cmd_args <- commandArgs(trailingOnly = FALSE)
   file_arg <- "--file="
   script_arg <- grep(file_arg, cmd_args, value = TRUE)
@@ -43,29 +64,19 @@ get_script_dir <- function() {
 }
 project_dir <- get_script_dir()
 input_dir   <- project_dir
-output_dir  <- project_dir
+output_dir <- Sys.getenv("MUSIC_CULTURE_OUTPUT_DIR", file.path(project_dir, "outputs"))
+dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+output_dir <- normalizePath(output_dir, mustWork = TRUE)
 
-# Locate the paper data workbook robustly. Order of preference:
-#   1) the script/working folder itself;
-#   2) any subfolder of it (covers setups where the data lives in e.g.
-#      Desktop\Project\Essay\论文附件\ while the script runs from Desktop);
-#   3) the parent folder. If several copies exist, the newest is used.
+# Resolve a known input location deterministically. Generated workbooks in
+# outputs/ must never replace the committed source workbook on a later run.
 locate_data_file <- function(project_dir) {
   direct <- c(file.path(project_dir, "论文数据.xlsx"),
-              file.path(project_dir, "country_culture_gdp.xlsx"))
+              file.path(project_dir, "country_culture_gdp.xlsx"),
+              file.path(project_dir, "data", "论文数据.xlsx"),
+              file.path(project_dir, "data", "country_culture_gdp.xlsx"))
   hit <- direct[file.exists(direct)]
   if (length(hit) > 0) return(hit[1])
-  recursive <- list.files(project_dir,
-                          pattern = "^论文数据\\.xlsx$|^country_culture_gdp\\.xlsx$",
-                          recursive = TRUE, full.names = TRUE)
-  if (length(recursive) > 0) {
-    info <- file.info(recursive)
-    return(recursive[which.max(info$mtime)])
-  }
-  parent <- dirname(project_dir)
-  if (file.exists(file.path(parent, "论文数据.xlsx"))) {
-    return(file.path(parent, "论文数据.xlsx"))
-  }
   NULL
 }
 located_data <- locate_data_file(input_dir)
@@ -74,12 +85,8 @@ located_data <- locate_data_file(input_dir)
 # looked and how to fix it, so a wrong working directory is obvious instead of
 # a generic "file not found" error several steps later.
 if (is.null(located_data)) {
-  cat("\n!!! Data file not found.\n")
-  cat("!!! Current working directory :", getwd(), "\n")
-  cat("!!! Searched in               :", input_dir, " (and its subfolders)\n")
-  cat("!!! Fix (option 1): put 论文数据.xlsx anywhere under this folder and re-source.\n")
-  cat("!!! Fix (option 2): in RStudio: Session > Set Working Directory > To Source File Location\n")
-  cat("!!! Fix (option 3): run  setwd('path/to/folder-with-data')  before sourcing.\n")
+  stop("Input workbook not found in ", input_dir,
+       " or its data/ directory. See README.md for the required input.")
 } else {
   cat("Using data file:", located_data, "\n")
 }
@@ -225,11 +232,34 @@ if (!is.null(paper_data_path) && basename(paper_data_path) == "论文数据.xlsx
   stop("Neither 论文数据.xlsx nor country_culture_gdp.xlsx was found (searched: ",
        input_dir, " and its subfolders).")
 }
+# Validate the input before fitting models or producing dissertation tables.
+required_columns <- c("country or region", audio_vars, culture_vars, control_vars)
+missing_columns <- setdiff(required_columns, names(df))
+if (length(missing_columns)) {
+  stop("Input workbook is missing columns: ", paste(missing_columns, collapse = ", "))
+}
+countries <- df[["country or region"]]
+if (anyNA(countries) || any(!nzchar(trimws(countries))) || anyDuplicated(countries)) {
+  stop("Country names must be present and unique in the input workbook.")
+}
+numeric_columns <- c(audio_vars, culture_vars, control_vars)
+if (!all(vapply(df[numeric_columns], is.numeric, logical(1)))) {
+  stop("Audio features, cultural dimensions and GDP per capita must be numeric.")
+}
+if (any(vapply(df[numeric_columns], function(x) any(is.infinite(x)), logical(1)))) {
+  stop("Analysis columns contain infinite values.")
+}
+if (any(df[["2021GDPPC"]] <= 0, na.rm = TRUE)) {
+  stop("GDP per capita must be positive before taking logarithms.")
+}
 # 1.3 Data cleaning and filtering (construct 73-country analysis sample)
 data_clean <- df %>%
   column_to_rownames(var = "country or region") %>%
   select(all_of(c(audio_vars, culture_vars, control_vars))) %>%
   filter(if_all(all_of(audio_vars), ~ !is.na(.)) & !is.na(`2021GDPPC`))
+if (nrow(data_clean) != 73L) {
+  stop("Expected 73 countries for the dissertation analysis; found ", nrow(data_clean), ".")
+}
 # 1.4 Define unified plotting style
 plot_style <- list(
   method = "color", type = "upper", diag = FALSE, tl.col = "black",
@@ -444,6 +474,10 @@ final_base <- data_clean %>%
 #   55 = countries with complete data on all six Hofstede dimensions
 export_55_data <- complete_culture(final_base)
 export_60_data <- final_base %>% filter(complete.cases(select(., all_of(culture_vars_4))))
+if (nrow(export_55_data) != 55L || nrow(export_60_data) != 60L) {
+  stop("Expected nested samples of 55 and 60 countries; found ",
+       nrow(export_55_data), " and ", nrow(export_60_data), ".")
+}
 write_xlsx(export_55_data, "Final_Data_55_Countries.xlsx")
 write_xlsx(export_60_data, "Final_Data_60_Countries.xlsx")
 # ==============================================================================
@@ -466,7 +500,8 @@ dev.off()
 # ==============================================================================
 # 6.1 Perform clustering (set seed to ensure reproducibility)
 set.seed(123)
-# 3 clusters: the three retained PCs have eigenvalue > 1 (Sec. 4.3.3 / 5.2.1).
+# Use the dissertation's three-cluster specification. The number of retained
+# principal components does not, by itself, determine the number of clusters.
 res.hcpc <- HCPC(res.pca, nb.clust = 3, kk = Inf, graph = FALSE)
 country_clusters <- res.hcpc$data.clust %>% select(clust) %>% rownames_to_column("country or region")
 cluster_with_culture <- final_base %>% inner_join(country_clusters, by = "country or region")
@@ -484,7 +519,7 @@ anova_table <- data.frame(
   `df Between` = sapply(anova_summary, function(x) x$Df[1]),
   `df Within` = sapply(anova_summary, function(x) x$Df[2]),
   `F-statistic` = round(sapply(anova_summary, function(x) x$`F value`[1]), 2),
-  `p-value` = round(sapply(anova_summary, function(x) x$`Pr(>F)`[1]), 4),
+  `p-value` = sapply(anova_summary, function(x) x$`Pr(>F)`[1]),
   check.names = FALSE
 )
 # Add significance marks
@@ -691,7 +726,8 @@ cat("\n=== Table 5-7 exported to Word ===\n")
 # Heteroscedasticity test. Table 5-8 reports the STUDENTIZED form
 # (lmtest::bptest default; model names carry the ".BP" suffix, e.g.
 # PC3_Score_60_nogdp p = 0.0147). The classic (non-studentized) White form is
-# also computed and printed alongside for comparison.
+# also computed and printed alongside for comparison. The auxiliary regression
+# uses fitted values and their square, rather than all predictor cross-products.
 white_studentize <- TRUE
 white_tests <- sapply(models, function(m) {
   bptest(m, ~ fitted(m) + I(fitted(m)^2), studentize = white_studentize)$p.value
@@ -744,7 +780,8 @@ rq3_print <- function(m4d, m6d, label, gdp = FALSE) {
       " AIC=", AIC(m6d), " BIC=", BIC(m6d), " RMSE=", sqrt(mean(resid(m6d)^2)), "\n")
   cat("  delta R2=", summary(m6d)$r.squared - summary(m4d)$r.squared,
       " delta adjR2=", summary(m6d)$adj.r.squared - summary(m4d)$adj.r.squared,
-      " F(2, 48)=", ft$F[2], " p=", ft$"Pr(>F)"[2], "\n")
+      " F(", ft$Df[2], ", ", ft$Res.Df[2], ")=", ft$F[2],
+      " p=", ft$"Pr(>F)"[2], "\n", sep = "")
   invisible(ft)
 }
 rq3_f <- list()
@@ -790,3 +827,6 @@ print(res.pca_all$eig[1:5, ])
 cat("\n=== [Sec 5.1.2] UAI extremes for regional description ===\n")
 uai_sorted <- sort(export_55_data$uai)
 print(head(uai_sorted, 5)); print(tail(uai_sorted, 5))
+
+writeLines(capture.output(sessionInfo()), file.path(output_dir, "session-info.txt"))
+})
