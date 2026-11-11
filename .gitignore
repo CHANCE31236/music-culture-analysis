@@ -1,0 +1,9 @@
+# Local R sessions and generated analysis artifacts
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+Rplots.pdf
+/outputs/
+.DS_Store
+Thumbs.db
